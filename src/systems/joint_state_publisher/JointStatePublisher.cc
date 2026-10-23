@@ -33,7 +33,6 @@
 #include "gz/sim/components/JointForce.hh"
 #include "gz/sim/components/JointPosition.hh"
 #include "gz/sim/components/JointVelocity.hh"
-#include "gz/sim/components/ParentEntity.hh"
 #include "gz/sim/components/ParentLinkName.hh"
 #include "gz/sim/components/Pose.hh"
 #include "gz/sim/Util.hh"
@@ -95,13 +94,6 @@ void JointStatePublisher::Configure(
     }
   }
 
-  // Advertise the state topic
-  // Sets to provided topic if available
-  if (_sdf->HasElement("topic"))
-  {
-    this->topic = _sdf->Get<std::string>("topic");
-  }
-
   const double updateRate = _sdf->Get<double>("update_rate", 0.0).first;
   if (updateRate < 0)
   {
@@ -123,6 +115,25 @@ void JointStatePublisher::Configure(
     jointMsg->set_name(_ecm.Component<components::Name>(joint)->Data());
     jointMsg->set_id(joint);
   }
+
+  // Resolve the joint state topic, taking the model namespace into account.
+  TopicNameOptions topicOptions;
+  topicOptions.sdfElementName = "topic";
+  topicOptions.topicNamespace = scopedNamespace(_ecm, this->model.Entity());
+  topicOptions.defaultTopicPrefix =
+      topicFromScopedName(this->model.Entity(), _ecm, false);
+  topicOptions.defaultTopicSuffix = "joint_state";
+  this->topic = resolvedTopicName(_sdf, topicOptions);
+  if (this->topic.empty())
+  {
+    gzerr << "JointStatePublisher failed to find a valid topic name. "
+          << "Check the <topic> and the namespace attribute in the SDF."
+          << std::endl;
+    return;
+  }
+
+  gzmsg << "JointStatePublisher publishing joint states on ["
+        << this->topic << "]" << std::endl;
 }
 
 //////////////////////////////////////////////////
@@ -170,43 +181,14 @@ void JointStatePublisher::PostUpdate(const UpdateInfo &_info,
     return;
   }
 
-  // Create the model state publisher. This can't be done in ::Configure
-  // because the World is not guaranteed to be accessible.
+  // Create the model state publisher using the topic resolved in Configure.
   if (!this->modelPub)
   {
-    std::string worldName;
+    if (this->topic.empty())
+      return;
 
-    // Get the parent entity, which is the world.
-    const auto *parentEntity =
-      _ecm.Component<components::ParentEntity>(this->model.Entity());
-    if (parentEntity)
-    {
-      worldName = _ecm.Component<components::Name>(
-          parentEntity->Data())->Data();
-
-      // if topic not set it will be empty
-      std::vector<std::string> topics;
-      // this helps avoid unecesarry invalid topic error
-      if (!this->topic.empty())
-      {
-        topics.push_back(this->topic);
-      }
-      std::string topicStr =
-          topicFromScopedName(this->model.Entity(), _ecm, false) +
-          "/joint_state";
-      topics.push_back(topicStr);
-
-      this->topic = validTopic(topics);
-      if (this->topic.empty())
-      {
-        gzerr << "No valid topics for JointStatePublisher could be found."
-          << "Make sure World/Model name doesn't contain invalid characters.\n";
-        return;
-      }
-
-      this->modelPub = std::make_unique<transport::Node::Publisher>(
-          this->node.Advertise<msgs::Model>(this->topic));
-    }
+    this->modelPub = std::make_unique<transport::Node::Publisher>(
+        this->node.Advertise<msgs::Model>(this->topic));
   }
 
   // Skip if we couldn't create the publisher.
@@ -335,6 +317,15 @@ void JointStatePublisher::PostUpdate(const UpdateInfo &_info,
 
   // Publish the message.
   this->modelPub->Publish(msg);
+}
+
+//////////////////////////////////////////////////
+JointStatePublisher::TopicNames
+JointStatePublisher::ResolvedTopicNames() const
+{
+  TopicNames names;
+  names.jointStateTopic = this->topic;
+  return names;
 }
 
 GZ_ADD_PLUGIN(JointStatePublisher,

@@ -46,9 +46,13 @@ namespace systems
   ///
   /// ## System Parameters
   ///
-  /// - `<topic>`: Name of the topic to publish to. This parameter is optional,
-  /// and if not provided, the joint state will be published to
-  /// "/world/<world_name>/model/<model_name>/joint_state".
+  /// - `<topic>`: Name of the topic to publish to. This parameter is
+  /// optional. If the model has a namespace (set with the model's
+  /// `namespace` attribute), a relative topic (not starting with `/`) is
+  /// prefixed with that namespace, while an absolute topic is used as is.
+  /// If not provided, the joint state is published to
+  /// "<namespace>/joint_state" when the model has a namespace, or to
+  /// "/world/<world_name>/model/<model_name>/joint_state" otherwise.
   ///
   /// - `<joint_name>`: Name of a joint to publish. This parameter can be
   /// specified multiple times, and is optional. All joints in a model will
@@ -62,6 +66,13 @@ namespace systems
         public ISystemConfigure,
         public ISystemPostUpdate
   {
+    /// \brief Resolved topic names
+    public: struct TopicNames
+    {
+      /// \brief Joint state topic name
+      public: std::string jointStateTopic;
+    };
+
     /// \brief Constructor
     public: JointStatePublisher();
 
@@ -77,6 +88,10 @@ namespace systems
     public: void PostUpdate(const UpdateInfo &_info,
                             const EntityComponentManager &_ecm) final;
 
+    /// \brief Get the resolved topic names.
+    /// \return Topic names resolved in Configure.
+    public: TopicNames ResolvedTopicNames() const;
+    
     /// \brief Create components for a joint.
     /// \param[in] _ecm The EntityComponentManager.
     /// \param[in] _joint The joint entity to create component for.
